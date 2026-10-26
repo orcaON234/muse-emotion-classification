@@ -5,8 +5,9 @@ Responsibilities:
   1. Apply 0.5 - 45.0 Hz zero-phase Butterworth/FIR bandpass filter to remove
      DC drift (<0.5 Hz) and high-frequency muscle tension (>45 Hz).
   2. Apply 60.0 Hz notch filter to eliminate powerline interference.
-  3. Run Artifact Subspace Reconstruction (EducationalASR) to suppress transient
-     jaw clenches (TP9/TP10) and forehead blinks (AF7/AF8) without dropping trials.
+  3. Calibrate Artifact Subspace Reconstruction (EducationalASR) specifically on
+     the first `baseline_sec` (default 10.0s) of pre-stimulus resting EEG, then
+     clean the entire recording without dropping trials.
 """
 
 import numpy as np
@@ -41,7 +42,7 @@ def bandpass_and_notch_filter(
 
 
 class EducationalASR:
-    """Artifact Subspace Reconstruction (ASR) for 4-channel Muse EEG."""
+    """Artifact Subspace Reconstruction (ASR) calibrated on pre-stimulus baseline."""
 
     def __init__(
         self,
@@ -55,24 +56,23 @@ class EducationalASR:
         self.calib_eigvals = None
         self.calib_eigvecs = None
 
-    def fit(self, data: np.ndarray):
-        """Calibrate baseline covariance on lower-variance reference windows."""
-        # Select windows in the lower 50th percentile of RMS amplitude as clean reference
-        n_ch, n_samples = data.shape
-        win_size = min(256, n_samples)
+    def fit(self, baseline_data: np.ndarray):
+        """Calibrate baseline covariance on the pre-stimulus resting segment."""
+        n_ch, n_samples = baseline_data.shape
+        win_size = min(128, n_samples)
         rms_vals = []
         slices = []
         for start in range(0, n_samples - win_size + 1, win_size):
-            seg = data[:, start : start + win_size]
+            seg = baseline_data[:, start : start + win_size]
             rms_vals.append(np.sqrt(np.mean(seg**2)))
             slices.append(seg)
 
         if slices:
-            median_rms = np.percentile(rms_vals, 60)
-            clean_segs = [s for s, r in zip(slices, rms_vals) if r <= median_rms]
-            ref_data = np.concatenate(clean_segs, axis=1) if clean_segs else data
+            cutoff_rms = np.percentile(rms_vals, 70)
+            clean_segs = [s for s, r in zip(slices, rms_vals) if r <= cutoff_rms]
+            ref_data = np.concatenate(clean_segs, axis=1) if clean_segs else baseline_data
         else:
-            ref_data = data
+            ref_data = baseline_data
 
         cov = np.cov(ref_data)
         eigvals, eigvecs = np.linalg.eigh(cov)
@@ -112,7 +112,6 @@ class EducationalASR:
             output[:, start:stop] += recon_win * hann[None, :]
             weights[start:stop] += hann
 
-        # Fill tail samples if any
         rem = weights == 0
         output[:, rem] = data[:, rem]
         weights[rem] = 1.0
@@ -122,13 +121,17 @@ class EducationalASR:
 def clean_eeg_dataframe(
     df_raw: pd.DataFrame,
     asr_cutoff: float = 4.5,
+    baseline_sec: float = 10.0,
 ) -> pd.DataFrame:
-    """Run full filtering + ASR cleaning on a loaded Muse DataFrame."""
+    """Run filtering + ASR (calibrated on the first `baseline_sec` seconds)."""
     raw_matrix = df_raw[CHANNELS].to_numpy(dtype=float).T  # (4, n_samples)
     filtered = bandpass_and_notch_filter(raw_matrix, sfreq=SFREQ)
 
+    baseline_samples = min(int(baseline_sec * SFREQ), filtered.shape[1])
+    baseline_segment = filtered[:, :baseline_samples]
+
     asr = EducationalASR(cutoff=asr_cutoff)
-    asr.fit(filtered)
+    asr.fit(baseline_segment)
     cleaned_matrix = asr.transform(filtered, sfreq=SFREQ)
 
     df_clean = df_raw.copy()

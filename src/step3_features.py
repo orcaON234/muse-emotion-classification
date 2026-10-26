@@ -1,20 +1,15 @@
-"""Step 3: Sliding-Window Epoching & Slide 6-9 Spectral Feature Extraction.
+"""Step 3: 10s Baseline Subtraction, Sliding-Window Epoching & 13 Spectral Features.
 
 Owner: Member 3
 Responsibilities:
-  1. Slice continuous cleaned Muse recordings into 2.0-second epochs (512 samples)
-     with a 0.5-second step (75% overlap).
-  2. Extract Welch Power Spectral Density (PSD) across the 5 bands from Slide 6:
-     - Delta (0.5 - 4 Hz): Reward processing & baseline
-     - Theta (4 - 8 Hz): Memory encoding, workload, & left-frontal preference
-     - Alpha (8 - 12 Hz): Cortical idling & relaxation
-     - Beta  (13 - 30 Hz): Active analytical focus & alertness
-     - Gamma (30 - 45 Hz): Sensory binding & peak emotional intensity
-  3. Compute the PAD indices from Slides 7-9:
-     - Frontal Alpha Asymmetry (FAA = ln(Alpha_AF8) - ln(Alpha_AF7)) -> Pleasure
-     - Left Frontal Theta (ln(Theta_AF7)) -> Pleasant engagement
-     - Arousal Index ((Beta + Gamma) / Alpha) -> Arousal
-     - Dominance Index (Frontal-Temporoparietal Beta/Alpha balance) -> Dominance
+  1. Separate the first `baseline_sec` (default 10.0s = 2560 samples) of each
+     recording as the Pre-Stimulus Resting Baseline (Slide 12 of 10/19 meeting).
+  2. Compute the participant's resting baseline for all 13 features across the
+     first 10 seconds (`t = 0s .. 10s`).
+  3. Slice the active advertisement viewing period (`t >= 10s`) into overlapping
+     2.0-second epochs (`step_sec = 0.5s`) and subtract the 10s resting baseline
+     from every epoch so all 13 features measure the *stimulus-evoked change*
+     (`Delta_Feature = Stimulus_Epoch_Feature - Baseline_10s_Feature`).
 """
 
 import numpy as np
@@ -23,9 +18,25 @@ import scipy.signal
 
 from . import CHANNELS, SFREQ
 
+FEATURE_KEYS = [
+    "FAA",
+    "Left_Frontal_Theta",
+    "Arousal_Index",
+    "Dominance_Index",
+    "Delta_Mean",
+    "Theta_Mean",
+    "Alpha_Mean",
+    "Beta_Mean",
+    "Gamma_Mean",
+    "Alpha_AF7",
+    "Alpha_AF8",
+    "Beta_AF7",
+    "Beta_AF8",
+]
+
 
 def extract_epoch_features(epoch_data: np.ndarray, sfreq: float = SFREQ) -> dict:
-    """Compute Slide 6-9 spectral & PAD features for a single epoch (shape: 4 x N).
+    """Compute Slide 6-9 spectral & PAD features for a single segment (shape: 4 x N).
 
     Channel indices: 0=TP9, 1=AF7, 2=AF8, 3=TP10
     """
@@ -74,25 +85,47 @@ def extract_epoch_features(epoch_data: np.ndarray, sfreq: float = SFREQ) -> dict
 def slice_and_extract_recording(
     df_clean: pd.DataFrame,
     eeg_id: str,
+    baseline_sec: float = 10.0,
     window_sec: float = 2.0,
     step_sec: float = 0.5,
+    subtract_baseline: bool = True,
     sfreq: float = SFREQ,
 ) -> pd.DataFrame:
-    """Slice a cleaned recording into overlapping epochs and return feature table."""
+    """Use the first `baseline_sec` (10s) as resting baseline, then slice `t >= baseline_sec`."""
     data = df_clean[CHANNELS].to_numpy(dtype=float).T  # (4, n_samples)
     n_samples = data.shape[1]
+    base_samples = int(baseline_sec * sfreq)
     win_samples = int(window_sec * sfreq)
     step_samples = int(step_sec * sfreq)
 
+    if n_samples <= base_samples + win_samples:
+        raise ValueError(
+            f"Recording {eeg_id} ({n_samples/sfreq:.1f}s) is shorter than "
+            f"baseline_sec ({baseline_sec}s) + window_sec ({window_sec}s)."
+        )
+
+    # 1. Compute pre-stimulus resting baseline features on [0 .. baseline_sec]
+    baseline_matrix = data[:, :base_samples]
+    baseline_feats = extract_epoch_features(baseline_matrix, sfreq=sfreq)
+
+    # 2. Slice active stimulus period starting at `baseline_sec` (t >= 10.0s)
     rows = []
     epoch_idx = 0
-    for start in range(0, n_samples - win_samples + 1, step_samples):
+    for start in range(base_samples, n_samples - win_samples + 1, step_samples):
         stop = start + win_samples
         epoch_matrix = data[:, start:stop]
-        feats = extract_epoch_features(epoch_matrix, sfreq=sfreq)
+        raw_feats = extract_epoch_features(epoch_matrix, sfreq=sfreq)
+
+        if subtract_baseline:
+            # Baseline-corrected change in log-power / asymmetry relative to first 10s
+            feats = {k: raw_feats[k] - baseline_feats[k] for k in FEATURE_KEYS}
+        else:
+            feats = dict(raw_feats)
+
         feats["EEGid"] = eeg_id
         feats["Epoch_ID"] = epoch_idx
         feats["Start_Time_s"] = round(start / sfreq, 2)
+        feats["Stimulus_Time_s"] = round((start - base_samples) / sfreq, 2)
         rows.append(feats)
         epoch_idx += 1
 
