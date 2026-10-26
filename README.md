@@ -34,11 +34,11 @@ muse emotion classification/
 ├── recordings/                 # Raw Muse 2 EEG CSV recordings & waveform plots
 └── src/                        # Modular 5-step pipeline for the technical team
     ├── __init__.py             # Global constants (CHANNELS, SFREQ = 256.0 Hz)
-    ├── step1_loader.py         # Freshman 1: Prefix matcher & +-1000uV rail dropout interpolation
-    ├── step2_clean.py          # Freshman 2: Bandpass (0.5-45Hz), 60Hz notch & EducationalASR
-    ├── step3_features.py       # Freshman 3: 2.0s sliding window, Welch PSD, FAA & Arousal ratios
-    ├── step4_labels.py         # Freshman 4: admaster.xlsx reader & [-1, 1] PAD normalization
-    └── step5_model.py          # Freshman 5: Multi-Output Ridge regressor & discrete emotion tokens
+    ├── step1_loader.py         # Member 1: Prefix matcher & +-1000uV rail dropout interpolation
+    ├── step2_clean.py          # Member 2: Bandpass (0.5-45Hz), 60Hz notch & EducationalASR
+    ├── step3_features.py       # Member 3: 2.0s sliding window, Welch PSD, FAA & Arousal ratios
+    ├── step4_labels.py         # Member 4: admaster.xlsx reader & Emotion_Valence target
+    └── step5_model.py          # Member 5: StandardScaler + LogisticRegression (Onboarding ML approach)
 ```
 
 ---

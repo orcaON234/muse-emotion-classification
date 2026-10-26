@@ -1,6 +1,6 @@
 """Step 1: Recording Loader, Prefix Matcher & Rail-Dropout Interpolator.
 
-Owner: Freshman 1
+Owner: Member 1
 Responsibilities:
   1. Match `EEGid` prefixes from `admaster.xlsx` (e.g. `muse_20261019_165020.csv`)
      to the actual timestamped CSV files inside `recordings/`.

@@ -1,6 +1,6 @@
 """Step 2: Zero-Phase Bandpass/Notch Filtering & ASR Subspace Cleaning.
 
-Owner: Freshman 2
+Owner: Member 2
 Responsibilities:
   1. Apply 0.5 - 45.0 Hz zero-phase Butterworth/FIR bandpass filter to remove
      DC drift (<0.5 Hz) and high-frequency muscle tension (>45 Hz).

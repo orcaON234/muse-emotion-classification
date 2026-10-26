@@ -1,22 +1,30 @@
-"""Step 5: Model A Multi-Output PAD Regressor & Discrete Emotion Tokenizer.
+"""Step 5: Emotion Valence Classifier (Onboarding Notebook ML Approach).
 
-Owner: Freshman 5
+Owner: Member 5
 Responsibilities:
-  1. Train a regularized Multi-Output Ridge regression pipeline mapping the
-     extracted spectral/FAA features -> [P_norm, A_norm, D_norm].
-  2. Apply the DeWave discrete tokenization concept: map continuous PAD coordinates
-     to discrete emotion tokens (e.g. 'Excited / Liking', 'Calm / Engaged',
-     'Frustrated / Combative', 'Avoidant / Disliking').
-  3. Evaluate with cross-validation and export epoch-level predictions.
+  1. Train the exact Scikit-Learn Pipeline from Module 6 of
+     `Neuromarketing_Technical_Onboarding_Fall2026.ipynb`:
+     `StandardScaler` + `LogisticRegression` (or `SGDClassifier`, `SVC`, `RandomForestClassifier`).
+  2. Evaluate using 5-Fold `StratifiedKFold` cross-validation (`classification_report`,
+     `confusion_matrix`, and `roc_auc_score`).
+  3. Extract learned feature weights (`coef_`) to verify neuroscience validity
+     (e.g. positive weight on `FAA` and `Left_Frontal_Theta`).
 """
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, r2_score
-from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+)
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 FEATURE_COLS = [
     "FAA",
@@ -34,62 +42,104 @@ FEATURE_COLS = [
     "Beta_AF8",
 ]
 
-TARGET_COLS = ["P_norm", "A_norm", "D_norm"]
 
-# 3D PAD Emotion Prototypes (Grounded in Slide 5 & Slide 9)
-EMOTION_PROTOTYPES = {
-    "Excited / High Liking": np.array([0.70, 0.65, 0.50]),
-    "Calm / Pleasant": np.array([0.55, -0.40, 0.35]),
-    "Focused / Interested": np.array([0.45, 0.40, 0.30]),
-    "Angry / Frustrated (High Dom)": np.array([-0.60, 0.70, 0.60]),
-    "Anxious / Overwhelmed (Low Dom)": np.array([-0.60, 0.70, -0.60]),
-    "Disliking / Avoidant": np.array([-0.40, 0.40, -0.35]),
-    "Bored / Disengaged": np.array([-0.20, -0.60, -0.30]),
-}
+def build_classifier_pipeline(
+    model_type: str = "logreg",
+    C: float = 1.0,
+    learning_rate: float = 0.01,
+    max_iter: int = 1000,
+) -> Pipeline:
+    """Create the Scikit-Learn Pipeline matching the Onboarding Notebook.
+
+    Hyperparameters to test:
+        model_type: 'logreg' (Logistic Regression), 'sgd' (Gradient Descent with learning_rate),
+                    'svm' (Support Vector Classifier), or 'rf' (Random Forest)
+        C: Inverse regularization strength (smaller C = stronger penalty against overfitting)
+        learning_rate: Step size `eta0` used when `model_type='sgd'`
+        max_iter: Maximum training iterations (epochs over the training set)
+    """
+    if model_type == "logreg":
+        clf = LogisticRegression(C=C, max_iter=max_iter, random_state=42)
+    elif model_type == "sgd":
+        clf = SGDClassifier(
+            loss="log_loss",
+            learning_rate="constant",
+            eta0=learning_rate,
+            alpha=1.0 / max(C * 100.0, 1e-6),
+            max_iter=max_iter,
+            random_state=42,
+        )
+    elif model_type == "svm":
+        clf = SVC(kernel="rbf", C=C, probability=True, random_state=42)
+    elif model_type == "rf":
+        clf = RandomForestClassifier(
+            n_estimators=50, max_depth=3, random_state=42
+        )
+    else:
+        raise ValueError(f"Unknown model_type: {model_type}")
+
+    return Pipeline([("scaler", StandardScaler()), ("classifier", clf)])
 
 
-def pad_to_emotion_token(pad_vec: np.ndarray) -> str:
-    """Assign a 3D PAD coordinate [P, A, D] to the nearest discrete emotion token."""
-    best_label = "Neutral"
-    best_dist = float("inf")
-    for label, proto in EMOTION_PROTOTYPES.items():
-        dist = float(np.linalg.norm(pad_vec - proto))
-        if dist < best_dist:
-            best_dist = dist
-            best_label = label
-    return best_label
-
-
-def train_and_evaluate_model_a(df_master: pd.DataFrame) -> tuple[Pipeline, pd.DataFrame, dict]:
-    """Fit Multi-Output Ridge model and generate discrete emotion predictions."""
+def train_and_evaluate_model_a(
+    df_master: pd.DataFrame,
+    model_type: str = "logreg",
+    C: float = 1.0,
+    learning_rate: float = 0.01,
+    max_iter: int = 1000,
+    n_splits: int = 5,
+) -> tuple[Pipeline, pd.DataFrame, dict]:
+    """Train and cross-validate the Emotion Valence classifier (Module 6 approach)."""
     X = df_master[FEATURE_COLS].to_numpy(dtype=float)
-    Y = df_master[TARGET_COLS].to_numpy(dtype=float)
+    y = df_master["Emotion_Valence"].to_numpy(dtype=int)
 
-    model = Pipeline(
-        [
-            ("scaler", StandardScaler()),
-            ("ridge", Ridge(alpha=5.0, random_state=42)),
-        ]
+    pipeline = build_classifier_pipeline(
+        model_type=model_type,
+        C=C,
+        learning_rate=learning_rate,
+        max_iter=max_iter,
     )
 
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    Y_pred = np.clip(cross_val_predict(model, X, Y, cv=kf), -1.0, 1.0)
+    # 5-Fold Stratified Cross-Validation (exact match to Onboarding Notebook Cell 16)
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    y_pred = cross_val_predict(pipeline, X, y, cv=cv)
+    y_prob = cross_val_predict(pipeline, X, y, cv=cv, method="predict_proba")[:, 1]
 
-    # Fit on full dataset for deployment / feature weight inspection
-    model.fit(X, Y)
+    acc = float(accuracy_score(y, y_pred))
+    auc_score = float(roc_auc_score(y, y_prob))
+    cm = confusion_matrix(y, y_pred)
+    report_str = classification_report(
+        y,
+        y_pred,
+        target_names=["Negative/Withdrawal (0)", "Positive/Approach (1)"],
+    )
+
+    # Fit on full dataset to inspect learned feature weights (Cell 18 of Onboarding Notebook)
+    pipeline.fit(X, y)
+    clf_step = pipeline.named_steps["classifier"]
+    if hasattr(clf_step, "coef_"):
+        weights = clf_step.coef_[0]
+    elif hasattr(clf_step, "feature_importances_"):
+        weights = clf_step.feature_importances_
+    else:
+        weights = np.zeros(len(FEATURE_COLS))
+
+    df_weights = pd.DataFrame(
+        {"Feature": FEATURE_COLS, "Weight": np.round(weights, 4)}
+    ).sort_values("Weight", ascending=False)
 
     df_results = df_master.copy()
-    df_results["Pred_P"] = np.round(Y_pred[:, 0], 3)
-    df_results["Pred_A"] = np.round(Y_pred[:, 1], 3)
-    df_results["Pred_D"] = np.round(Y_pred[:, 2], 3)
-    df_results["Predicted_Emotion_Token"] = [
-        pad_to_emotion_token(row) for row in Y_pred
-    ]
+    df_results["Predicted_Valence"] = y_pred
+    df_results["Approach_Probability"] = np.round(y_prob, 4)
+    df_results["Predicted_Label"] = np.where(
+        y_pred == 1, "Positive/Approach", "Negative/Withdrawal"
+    )
 
     metrics = {
-        "MAE_Pleasure": round(float(mean_absolute_error(Y[:, 0], Y_pred[:, 0])), 4),
-        "MAE_Arousal": round(float(mean_absolute_error(Y[:, 1], Y_pred[:, 1])), 4),
-        "MAE_Dominance": round(float(mean_absolute_error(Y[:, 2], Y_pred[:, 2])), 4),
-        "R2_Overall": round(float(r2_score(Y, Y_pred)), 4),
+        "accuracy": round(acc, 4),
+        "roc_auc": round(auc_score, 4),
+        "confusion_matrix": cm,
+        "classification_report": report_str,
+        "feature_weights": df_weights,
     }
-    return model, df_results, metrics
+    return pipeline, df_results, metrics

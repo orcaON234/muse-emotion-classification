@@ -1,6 +1,6 @@
 """Step 3: Sliding-Window Epoching & Slide 6-9 Spectral Feature Extraction.
 
-Owner: Freshman 3
+Owner: Member 3
 Responsibilities:
   1. Slice continuous cleaned Muse recordings into 2.0-second epochs (512 samples)
      with a 0.5-second step (75% overlap).

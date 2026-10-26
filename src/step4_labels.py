@@ -1,6 +1,6 @@
 """Step 4: Admaster XLSX Label Reader, Normalization & Model B Prior Filler.
 
-Owner: Freshman 4
+Owner: Member 4
 Responsibilities:
   1. Read `admaster.xlsx` (works with or without openpyxl installed).
   2. Fill in baseline Arousal, Dominance, and Keywords for the 3 initial ads
@@ -97,5 +97,8 @@ def load_admaster_labels(xlsx_path: Path = DEFAULT_ADMASTER) -> pd.DataFrame:
     df["P_norm"] = (df["Pleasure"] / 100.0).clip(-1.0, 1.0)
     df["A_norm"] = (df["Arousal"] / 100.0).clip(-1.0, 1.0)
     df["D_norm"] = (df["dominance"] / 100.0).clip(-1.0, 1.0)
+
+    # Binary Emotion Valence matching Onboarding Notebook Module 6 (1 = Positive/Approach, 0 = Negative/Withdrawal)
+    df["Emotion_Valence"] = (df["Pleasure"] > 0).astype(int)
 
     return df
