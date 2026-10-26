@@ -1,0 +1,8 @@
+pylsl
+numpy
+pandas
+scipy
+scikit-learn
+matplotlib
+openpyxl
+mne
